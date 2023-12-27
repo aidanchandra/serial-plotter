@@ -1,8 +1,0 @@
-{
-    "port": "/dev/cu.usbmodem11201",
-    "desc": "Pico",
-    "hwid": "USB VID:PID=2E8A:000A SER=E660D4A0A7729123 LOCATION=1-1.2",
-    "baud": "115200",
-    "t_connect": "1702977228.074862",
-    "data": []
-}

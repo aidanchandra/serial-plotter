@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QColorDialog,
 )
-from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, QTimer, Qt, QSize
 import time
 import random
 from datetime import datetime
@@ -35,11 +35,10 @@ class DataGenerator(Process):
                 y = np.sin(a)
                 self.data_queue.put((i, (x, y)))
 
-                a += 0.1
+                a += 0.01
                 if a >= two_pi:
                     a -= two_pi  # Reset a to 0 after reaching 2π
-
-            time.sleep(0.001)
+            time.sleep(0.0001)
 
 
 from PyQt5.QtCore import pyqtSignal
@@ -90,30 +89,35 @@ class LivePlotter(QWidget):
         self.checkboxes = []
 
         # Checkbox and color picker layout
-        checkbox_container = QWidget()  # Container for the grid layout
-        checkbox_layout = QGridLayout(
-            checkbox_container
+        self.checkbox_container = QWidget()  # Container for the grid layout
+        self.checkbox_layout = QGridLayout(
+            self.checkbox_container
         )  # Set the layout to the container
-        checkbox_container.setMaximumHeight(
-            120
+        self.checkbox_container.setFixedHeight(
+            90
         )  # Set the maximum height for the container
-        main_layout.addLayout(checkbox_layout)
-        checkbox_layout.setVerticalSpacing(0)
+        main_layout.addLayout(self.checkbox_layout)
+        self.checkbox_layout.setVerticalSpacing(1)
+        self.checkbox_layout.setHorizontalSpacing(1)
 
         self.num_curves = 9
         for i in range(self.num_curves):
             curve_layout = QHBoxLayout()
 
             checkbox = QCheckBox(f"Curve {i+1}")
+            font = checkbox.font()
+            font.setPointSize(8)  # Smaller font size
+            checkbox.setFont(font)
             checkbox.setChecked(True)
             checkbox.stateChanged.connect(
                 lambda checked, idx=i: self.toggle_curve(idx, checked)
             )
             self.checkboxes.append(checkbox)
+            checkbox.setFixedHeight(10)
 
             color_button = QPushButton()
             color_button.setStyleSheet(f"background-color: {self.colors[i]}")
-            color_button.setFixedWidth(30)  # Fixed width for color buttons
+            color_button.setFixedWidth(15)  # Fixed width for color buttons
             color_button.clicked.connect(lambda _, idx=i: self.open_color_picker(idx))
             self.color_buttons.append(color_button)
 
@@ -124,7 +128,7 @@ class LivePlotter(QWidget):
             curve_container = QWidget()
             curve_container.setLayout(curve_layout)
 
-            checkbox_layout.addWidget(
+            self.checkbox_layout.addWidget(
                 curve_container, i // 3, i % 3
             )  # Arranging curve containers
 
@@ -164,6 +168,7 @@ class LivePlotter(QWidget):
         self.plot_widget.addItem(self.vLine, ignoreBounds=True)
         self.plot_widget.addItem(self.hLine, ignoreBounds=True)
         self.mouse_label = QLabel()
+        self.mouse_label.setFixedHeight(11)
         main_layout.addWidget(self.mouse_label)
         self.plot_widget.scene().sigMouseMoved.connect(self.mouse_moved)
         self.plot_widget.sigMouseWheelScrolled.connect(
@@ -178,23 +183,43 @@ class LivePlotter(QWidget):
         self.start_stop_button = QPushButton("Start")
         self.start_stop_button.clicked.connect(self.toggle_start_stop)
         buttons_layout.addWidget(self.start_stop_button)
+        # font = self.start_stop_button.font()
+        # font.setPointSize(8)  # Smaller font size
+        # self.start_stop_button.setFont(font)
+        # self.start_stop_button.setFixedHeight(20)
 
         # View All/Hide All Button
-        self.view_all_button = QPushButton("Hide All")
+        self.menu_button = QPushButton("Show Menu")
+        self.menu_button.clicked.connect(self.toggle_menu)
+        buttons_layout.addWidget(self.menu_button)
+
+        # View All/Hide All Button
+        self.view_all_button = QPushButton("Hide All Plots")
         self.view_all_button.clicked.connect(self.toggle_view_all)
         buttons_layout.addWidget(self.view_all_button)
 
+        self.hide_menu = True
+        self.checkbox_container.hide()
         self.hide_all = True
         self.is_live = True
 
         self.toggle_start_stop()
-        main_layout.addWidget(checkbox_container)
+        main_layout.addWidget(self.checkbox_container)
         self.show()
+
+    def toggle_menu(self):
+        self.hide_menu = not self.hide_menu
+        if self.hide_menu:
+            self.menu_button.setText("Show Menu")
+            self.checkbox_container.hide()
+        else:
+            self.menu_button.setText("Hide Menu")
+            self.checkbox_container.show()
 
     def toggle_view_all(self):
         self.hide_all = not self.hide_all
         if self.hide_all:
-            self.view_all_button.setText("Hide All")
+            self.view_all_button.setText("Hide All Plots")
             for item in self.plot_curves:
                 item.setVisible(True)
             for checkbox in self.checkboxes:
@@ -202,7 +227,7 @@ class LivePlotter(QWidget):
 
             self.plot_widget.autoRange()
         else:
-            self.view_all_button.setText("Show All")
+            self.view_all_button.setText("Show All Plots")
             for item in self.plot_curves:
                 item.setVisible(False)
             for checkbox in self.checkboxes:

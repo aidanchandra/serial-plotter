@@ -1,6 +1,6 @@
 {
     "baud": "115200",
-    "port": 0,
+    "port": 2,
     "line_ending": 0,
     "log_to_file": false
 }

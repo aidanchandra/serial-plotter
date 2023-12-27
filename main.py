@@ -25,14 +25,13 @@ class Mean(CustomAnalysis):
 
 
 if __name__ == "__main__":
-    # logging.basicConfig(
     scale = Scale(CustomAnalysisKind.POINT_SCALAR, x=1, y=2, factor=10)
     mean = Mean(CustomAnalysisKind.SERIES_SCALAR, x=[1, 2], y=[3, 4])
     print(scale.get())
     print(mean.get())
-
-    #     format="%(asctime)s - %(levelname)s - %(message)s", level=logging.DEBUG
-    # )
-    # app = QApplication(sys.argv)
-    # window = SmartSerialPloter()
-    # sys.exit(app.exec_())
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(message)s", level=logging.DEBUG
+    )
+    app = QApplication(sys.argv)
+    window = SmartSerialPloter()
+    sys.exit(app.exec_())

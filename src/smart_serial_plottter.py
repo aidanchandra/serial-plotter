@@ -259,7 +259,7 @@ class SmartSerialPloter(QMainWindow):
         self.custom_analyses = []
         self.item_count = 0
 
-        self.plotter = LivePlotter(self)
+        self.plotter = LivePlotter(self.unprocessed_points, parent=self)
         self.statuses = {}
         self.init_layout()
 
@@ -273,7 +273,8 @@ class SmartSerialPloter(QMainWindow):
         self.serial_timer.timeout.connect(self.serial_callback)
 
         self.ui_timer.start(100)  # Update every second
-        self.data_timer.start(10)  # Update every second
+        self.data_callback_lock = False
+        self.data_timer.start(1)  # Update every second
         self.serial_timer.start(10)  # Update every second
 
         self.log_to_file_checkbox.setChecked(self.user_settings["log_to_file"])
@@ -309,7 +310,7 @@ class SmartSerialPloter(QMainWindow):
 
     def serial_callback(self):
         if self.is_on:
-            start_time = time.perf_counter_ns()
+            # start_time = time.perf_counter_ns()
             recieved_messages = 0
             if self.read_messages != None and len(self.read_messages) > 0:
                 for item in list(self.read_messages):
@@ -323,14 +324,23 @@ class SmartSerialPloter(QMainWindow):
             # )
 
     def data_callback(self):
+        # if not self.data_callback_lock:
+        # self.data_callback_lock = True
         while not self.unprocessed_points.empty():
             item = self.unprocessed_points.get_nowait()
             self.item_count += 1
             self.statuses.update(item["statuses"])
-            self.plotter.add_message(item)
+            # self.plotter.add_message(item)
+        self.data_callback_lock = False
+        # else:
+        # print("blocked")
 
     def ui_callback(self):
         # self.plotter.refresh_plot()
+        if self.unprocessed_points.qsize() != 0:
+            logging.info(
+                "Unprocessed queue size: " + str(self.unprocessed_points.qsize())
+            )
         self.update_statuses_analyses()
         self.update_plot_info()
 
@@ -343,11 +353,11 @@ class SmartSerialPloter(QMainWindow):
 
         for key in self.statuses:
             textline += key.replace("!", "") + ": "
-            if self.statuses[key] == "TRUE":
+            if self.statuses[key].lower() == "true":
                 textline += (
                     "<span style='color: green;'>" + self.statuses[key] + "</span><br>"
                 )
-            elif self.statuses[key] == "FALSE":
+            elif self.statuses[key].lower() == "false":
                 textline += (
                     "<span style='color: red;'>" + self.statuses[key] + "</span><br>"
                 )
@@ -378,7 +388,7 @@ class SmartSerialPloter(QMainWindow):
                 + " hz   n displayed: "
                 + self._safe_num_as_str(c, 7)
             )
-            self.plotter.refresh_plot()
+            # self.plotter.refresh_plot()
 
     # ---------------------- Serial Handling ----------------------
     def serial_send(self):
@@ -419,6 +429,7 @@ class SmartSerialPloter(QMainWindow):
             self.friendly_name.setText(current_time.strftime("%Y-%m-%d_%H-%M-%S"))
 
         self.misc_data["on"] = True
+
         self.misc_data["log_enabled"] = bool(self.log_to_file_checkbox.isChecked())
 
         self.serial_process = multiprocessing.Process(

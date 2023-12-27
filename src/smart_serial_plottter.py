@@ -259,7 +259,7 @@ class SmartSerialPloter(QMainWindow):
         self.custom_analyses = []
         self.item_count = 0
 
-        self.plotter = LivePlotter(self.unprocessed_points, parent=self)
+        self.plotter = LivePlotter(self)
         self.statuses = {}
         self.init_layout()
 

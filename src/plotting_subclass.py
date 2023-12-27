@@ -53,7 +53,7 @@ class CustomPlotWidget(pg.PlotWidget):
 
 
 class LivePlotter(QWidget):
-    def __init__(self, data_queue, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
 
         main_layout = QVBoxLayout(self)
@@ -70,9 +70,9 @@ class LivePlotter(QWidget):
         self.displayed_data = []
         self.total_data = []
         self.cached_total_data = []
-        self.data_queue = data_queue
-        # self.data_generator = DataGenerator(self.data_queue)
-        # self.data_generator.start()
+        self.data_queue = Queue()
+        self.data_generator = DataGenerator(self.data_queue)
+        self.data_generator.start()
         self.colors = [
             "red",
             "green",
@@ -324,7 +324,7 @@ class LivePlotter(QWidget):
         pass
 
     def closeEvent(self, event):
-        # self.data_generator.terminate()  # Terminate the data generator process
+        self.data_generator.terminate()  # Terminate the data generator process
         event.accept()
 
     def mouse_moved(self, pos):

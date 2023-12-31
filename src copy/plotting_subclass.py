@@ -18,7 +18,6 @@ import time
 import random
 from datetime import datetime
 from multiprocessing import Process, Queue
-from src.message_classes import RXMessage
 
 
 class DataGenerator(Process):
@@ -54,30 +53,26 @@ class CustomPlotWidget(pg.PlotWidget):
 
 
 class LivePlotter(QWidget):
-    def __init__(self, points_queue, curve_keys=None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent
-        self.data_queue = points_queue
-        if curve_keys == None:
-            self.curve_keys = ["a", "b", "c", "d", "e", "f", "g", "h", "i"]
-        else:
-            self.curve_keys = curve_keys
-        self.main_layout = QVBoxLayout(self)
+
+        main_layout = QVBoxLayout(self)
 
         self.plot_widget = CustomPlotWidget()
         self.plot_widget.setMouseEnabled(x=False, y=False)
-        self.main_layout.addWidget(self.plot_widget)
+        main_layout.addWidget(self.plot_widget)
         self.legend = self.plot_widget.addLegend()
 
         self.max_points = 10000
         self.has_downsampled = False
         self.plot_curves = []
+        self.data_generators = []
         self.displayed_data = []
         self.total_data = []
         self.cached_total_data = []
-        # self.points_queue = points_queue
-        # self.data_generator = DataGenerator(self.data_queue)
-        # self.data_generator.start()
+        self.data_queue = Queue()
+        self.data_generator = DataGenerator(self.data_queue)
+        self.data_generator.start()
         self.colors = [
             "red",
             "green",
@@ -101,21 +96,15 @@ class LivePlotter(QWidget):
         self.checkbox_container.setFixedHeight(
             90
         )  # Set the maximum height for the container
-        self.main_layout.addLayout(self.checkbox_layout)
+        main_layout.addLayout(self.checkbox_layout)
         self.checkbox_layout.setVerticalSpacing(1)
         self.checkbox_layout.setHorizontalSpacing(1)
 
-        self.plot_curves = []
-        self.displayed_data = []
-        self.total_data = []
-        self.cached_total_data = []
-        self.color_buttons = []
-        self.checkboxes = []
-        self.num_curves = len(self.curve_keys)
+        self.num_curves = 9
         for i in range(self.num_curves):
             curve_layout = QHBoxLayout()
 
-            checkbox = QCheckBox(self.curve_keys[i])
+            checkbox = QCheckBox(f"Curve {i+1}")
             font = checkbox.font()
             font.setPointSize(8)  # Smaller font size
             checkbox.setFont(font)
@@ -144,11 +133,20 @@ class LivePlotter(QWidget):
             )  # Arranging curve containers
 
             curve = self.plot_widget.plot(pen=self.colors[i])
-            self.legend.addItem(curve, self.curve_keys[i])
+            self.legend.addItem(curve, f"Curve {i+1}")
             self.plot_curves.append(curve)
             self.displayed_data.append([])
             self.total_data.append([])
             self.cached_total_data.append([])
+
+            # data_generator = DataGenerator(i, frequency=1.0 + i * 0.5)
+            # data_generator.data_signal.connect(self.receive_data)
+            # data_generator.start()
+            # self.data_generators.append(data_generator)
+
+            # self.data_generator = DataGenerator()
+            # self.data_generator.data_signal.connect(self.receive_data)
+            # self.data_generator.start()
 
         self.timer = QTimer()
         self.timer2 = QTimer()
@@ -171,7 +169,7 @@ class LivePlotter(QWidget):
         self.plot_widget.addItem(self.hLine, ignoreBounds=True)
         self.mouse_label = QLabel()
         self.mouse_label.setFixedHeight(11)
-        self.main_layout.addWidget(self.mouse_label)
+        main_layout.addWidget(self.mouse_label)
         self.plot_widget.scene().sigMouseMoved.connect(self.mouse_moved)
         self.plot_widget.sigMouseWheelScrolled.connect(
             self.mouse_scrolled
@@ -179,12 +177,16 @@ class LivePlotter(QWidget):
 
         # Buttons layout
         buttons_layout = QHBoxLayout()
-        self.main_layout.addLayout(buttons_layout)
+        main_layout.addLayout(buttons_layout)
 
         # Start/Stop Button
         self.start_stop_button = QPushButton("Start")
         self.start_stop_button.clicked.connect(self.toggle_start_stop)
         buttons_layout.addWidget(self.start_stop_button)
+        # font = self.start_stop_button.font()
+        # font.setPointSize(8)  # Smaller font size
+        # self.start_stop_button.setFont(font)
+        # self.start_stop_button.setFixedHeight(20)
 
         # View All/Hide All Button
         self.menu_button = QPushButton("Show Menu")
@@ -202,11 +204,8 @@ class LivePlotter(QWidget):
         self.is_live = True
 
         self.toggle_start_stop()
-        self.main_layout.addWidget(self.checkbox_container)
+        main_layout.addWidget(self.checkbox_container)
         self.show()
-
-    def update_curve_keys(self, curve_keys):
-        self.curve_keys = curve_keys
 
     def toggle_menu(self):
         self.hide_menu = not self.hide_menu
@@ -216,10 +215,6 @@ class LivePlotter(QWidget):
         else:
             self.menu_button.setText("Hide Menu")
             self.checkbox_container.show()
-
-    def calculate_displayed_points(self):
-        total_displayed_points = sum(len(data) for data in self.displayed_data)
-        return total_displayed_points
 
     def toggle_view_all(self):
         self.hide_all = not self.hide_all
@@ -250,12 +245,8 @@ class LivePlotter(QWidget):
 
     def process_queue(self):
         while not self.data_queue.empty():
-            messsage: RXMessage
-            messsage = self.data_queue.get()
-            plottable_list = messsage.as_plottable_list()
-            for i in range(0, len(plottable_list)):
-                self.receive_data(i, plottable_list[i])
-        pass
+            curve_id, data_point = self.data_queue.get()
+            self.receive_data(curve_id, data_point)
 
     def receive_data(self, curve_id, data_point):
         x, y = data_point
@@ -263,7 +254,6 @@ class LivePlotter(QWidget):
             self.displayed_data[curve_id].append((x, y))
             if len(self.displayed_data[curve_id]) > 1000:
                 self.displayed_data[curve_id].pop(0)
-
         self.total_data[curve_id].append((x, y))
         if len(self.total_data[curve_id]) > self.max_points:
             self.total_data[curve_id].pop(0)
@@ -280,7 +270,6 @@ class LivePlotter(QWidget):
                 x_vals, y_vals = (
                     zip(*self.displayed_data[i]) if self.displayed_data[i] else ([], [])
                 )
-                # print(x_vals, y_vals)
                 curve.setData(x_vals, y_vals)  # Update plot data
             self.plot_widget.autoRange()
 
@@ -292,13 +281,10 @@ class LivePlotter(QWidget):
             self.last_update = now
 
     def get_total_points(self):
-        if self.is_live:
-            total = 0
-            for list in self.displayed_data:
-                total += len(list)
-            return total
-        else:
-            return self.total_data_num_snapshot
+        total = 0
+        for list in self.total_data:
+            total += len(list)
+        return total
 
     def update_title(self):
         if self.fps_avg_n == 0:
@@ -338,7 +324,7 @@ class LivePlotter(QWidget):
         pass
 
     def closeEvent(self, event):
-        # self.data_generator.terminate()  # Terminate the data generator process
+        self.data_generator.terminate()  # Terminate the data generator process
         event.accept()
 
     def mouse_moved(self, pos):
@@ -354,25 +340,13 @@ class LivePlotter(QWidget):
         mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
         self.vLine.setPos(mouse_point.x())
         self.hLine.setPos(mouse_point.y())
-        try:
-            time_str = datetime.fromtimestamp(mouse_point.x()).strftime(
-                "%Y-%m-%d %H:%M:%S.%f"
-            )
-            self.mouse_label.setText(f"Time: {time_str}, Y: {mouse_point.y():.2f}")
-
-        except:
-            pass
+        time_str = datetime.fromtimestamp(mouse_point.x()).strftime(
+            "%Y-%m-%d %H:%M:%S.%f"
+        )
+        self.mouse_label.setText(f"Time: {time_str}, Y: {mouse_point.y():.2f}")
 
     def toggle_start_stop(self):
-        try:
-            if not self.parent.is_on:
-                self.is_live = False
-            else:
-                self.is_live = not self.is_live
-
-        except:
-            self.is_live = False
-
+        self.is_live = not self.is_live
         if self.is_live:
             self.start_stop_button.setText("Stop")
             # Resume live plotting
@@ -390,11 +364,6 @@ class LivePlotter(QWidget):
                 )
                 self.plot_curves[i].setData(x_vals, y_vals)  # Set formatted (x, y) data
             self.plot_widget.autoRange()
-
-            total = 0
-            for list in self.total_data:
-                total += len(list)
-            self.total_data_num_snapshot = total
 
 
 if __name__ == "__main__":

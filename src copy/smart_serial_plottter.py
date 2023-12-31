@@ -35,12 +35,12 @@ from datetime import datetime
 
 if __name__ == "__main__":
     from custom_analysis import *
-    from serial_class import *
+    from serial_thread import *
     from plotting_subclass import *
 
 else:
     from src.custom_analysis import *
-    from src.serial_class import *
+    from serial_thread import *
     from src.plotting_subclass import *
 
 
@@ -133,8 +133,8 @@ class SmartSerialPloter(QMainWindow):
         main_layout.addLayout(left_v_layout, 1)
 
         # Right vertical layout
-        self.right_v_layout = QVBoxLayout()
-        main_layout.addLayout(self.right_v_layout, 5)
+        right_v_layout = QVBoxLayout()
+        main_layout.addLayout(right_v_layout, 5)
 
         # Each quadrant
         # Quadrant 1: Plot Info + Stop/Start (Red)
@@ -151,13 +151,13 @@ class SmartSerialPloter(QMainWindow):
         q1_baud_layout.addWidget(q1_label)
         q1_baud_layout.addWidget(self.baud)
 
-        self.q1_c_dc_button = QPushButton("Connect")
-        self.q1_c_dc_button.released.connect(self.c_dc_handler)
+        self.q1_start_stop_button = QPushButton("Connect")
+        self.q1_start_stop_button.released.connect(self.start_stop_handler)
         self.is_on = False
         # self.q1_plot_ss_button = QPushButton("Toggle View")
 
         # q1_connect_disconnect = QPushButton("Connect")
-        q1_layout.addWidget(self.q1_c_dc_button)
+        q1_layout.addWidget(self.q1_start_stop_button)
         # q1_layout.addWidget(q1_connect_disconnect)
         q1_layout.addWidget(self.serial_ports)
         q1_layout.addLayout(q1_baud_layout)
@@ -196,14 +196,14 @@ class SmartSerialPloter(QMainWindow):
         self.clickable_items.append(self.friendly_name)
 
         q3.setFixedHeight(70)  # Set minimum size for q3
-        self.right_v_layout.addWidget(q3, 1)  # Add q3 to the right layout
-        self.right_v_layout.addWidget(self.plotter, 3)
+        right_v_layout.addWidget(q3, 1)  # Add q3 to the right layout
 
         # Quadrant 4: Blue with Matplotlib Plot
-        # self.canvas = FigureCanvas(Figure(figsize=(5, 3)))
-        # self.ax = self.canvas.figure.subplots()
-        # self.ax.plot([0, 1, 2], [2, 1, 0])  # Example plot
-        # self.canvas.setMinimumSize(300, 250)
+        self.canvas = FigureCanvas(Figure(figsize=(5, 3)))
+        self.ax = self.canvas.figure.subplots()
+        self.ax.plot([0, 1, 2], [2, 1, 0])  # Example plot
+        self.canvas.setMinimumSize(300, 250)
+        right_v_layout.addWidget(self.plotter, 3)
 
         # Quadrant 5: Serial Send/Receive + Reserved (Yellow)
         q5 = QWidget()
@@ -236,13 +236,13 @@ class SmartSerialPloter(QMainWindow):
         q5.setMinimumSize(300, 60)
         q5.setFixedHeight(60)
 
-        self.right_v_layout.addWidget(q5, 1)
+        right_v_layout.addWidget(q5, 1)
 
         # Window settings
-        self.setWindowTitle("Smart Serial Plotter")
+        self.setWindowTitle("Quadrant Scaling Example")
         self.resize(600, 400)
 
-    def __init__(self, debug=False):
+    def __init__(self):
         logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
         ## Initializations
         super().__init__()
@@ -250,35 +250,32 @@ class SmartSerialPloter(QMainWindow):
             []
         )  # List of items that will be unfocused after being clicked off
         self.user_settings = self._get_user_settings()
-        self.serial = SerialClass(5000, verbose=True)
+        self.serial_reader = SerialReader(5000)
         self.cur_ports = []  # List of current ports
         self.read_messages = None  # Messages read from serial monitor
         self.serial_process = None  # PRocess for serial handler
-        self.plot_queue = queue.Queue()
+        self.unprocessed_points = queue.Queue()
         self.local_list = []
         self.custom_analyses = []
         self.item_count = 0
 
-        self.plotter = LivePlotter(self.plot_queue, parent=self)
+        self.plotter = LivePlotter(self)
         self.statuses = {}
         self.init_layout()
 
         # Timer for live updates
         self.ui_timer = QTimer(self)
+        self.data_timer = QTimer(self)
         self.serial_timer = QTimer(self)
 
         self.ui_timer.timeout.connect(self.ui_callback)
+        self.data_timer.timeout.connect(self.data_callback)
         self.serial_timer.timeout.connect(self.serial_callback)
 
         self.ui_timer.start(100)  # Update every second
         self.data_callback_lock = False
-        self.serial_timer.start(1)  # Update every second
-
-        # Debug printing:
-        if debug:
-            self.debug_timer = QTimer(self)
-            self.debug_timer.start(10)
-            self.debug_timer.timeout.connect(self.debug_func)
+        self.data_timer.start(1)  # Update every second
+        self.serial_timer.start(10)  # Update every second
 
         self.log_to_file_checkbox.setChecked(self.user_settings["log_to_file"])
 
@@ -287,50 +284,19 @@ class SmartSerialPloter(QMainWindow):
         self.get_serial_ports()
         self.serial_ports.setCurrentIndex(self.user_settings["port"])
 
-    def c_dc_handler(self):
+    def start_stop_handler(self):
         if self.is_on == False:  # Stopped
-            self.im_too_tired_to_correctly_name_this = True
             # Start
             self.begin_serial()
+            self.q1_start_stop_button.setText("Disconnect")
             self.is_on = True
 
-            # Get index and size of the current plotter
-            plotter_index = self.right_v_layout.indexOf(self.plotter)
-            plotter_size = self.plotter.size()
-
-            # Remove and delete the current plotter
-            self.right_v_layout.removeWidget(self.plotter)
-            self.plotter.deleteLater()
-
-            # Create and configure the new plotter
-            self.plotter = LivePlotter(
-                self.plot_queue,
-                curve_keys=self.serial.rx_messages.get().as_curve_keys(),
-                parent=self,
-            )  # Adjust parameters as needed
-            self.plotter.resize(plotter_size)  # Set the size to match the old plotter
-            self.plotter.setSizePolicy(
-                self.plotter.sizePolicy()
-            )  # Maintain size policy if needed
-
-            # Insert the new plotter
-            self.right_v_layout.insertWidget(plotter_index, self.plotter)
-            # while self.serial.rx_messages.empty:
-            #     pass
-            # self.plotter.toggle_start_stop()
-            self.q1_c_dc_button.setText("Disconnect")
-
         else:  # Started
+            self.q1_start_stop_button.setText("Connect")
             self.is_on = False
-            self.statuses = {}
-            self.update_statuses_analyses()
             self.end_serial()
-            self.q1_c_dc_button.setText("Connect")
             self.friendly_name.setText("")
             self.item_count = 0
-            if self.plotter.is_live:
-                self.plotter.toggle_start_stop()
-
             self.analysis_text_edit.setText("")  # Append new text here
 
         # Stop
@@ -341,40 +307,45 @@ class SmartSerialPloter(QMainWindow):
     # -------------------------------------------------------------
     # ---------------------- Timed Functions ----------------------
     # -------------------------------------------------------------
-    def debug_func(self):
-        pass
-        # if self.is_on:
-        #     logging.debug(
-        #         "Q size from serial class " + str(self.serial.rx_messages.qsize())
-        #     )
 
     def serial_callback(self):
-        """ """
         if self.is_on:
-            start_time = time.perf_counter_ns()
+            # start_time = time.perf_counter_ns()
             recieved_messages = 0
-            while not self.serial.rx_messages.empty():
-                if self.im_too_tired_to_correctly_name_this:
-                    self.plotter.toggle_start_stop()
-                self.im_too_tired_to_correctly_name_this = False
-                message: RXMessage
-                message = self.serial.rx_messages.get()
-                # message.apply_offset(self.serial.config["t_first_message"])
-                self.plot_queue.put_nowait(message)
-                self.statuses.update(message.get_statuses())
-                recieved_messages += 1
-
+            if self.read_messages != None and len(self.read_messages) > 0:
+                for item in list(self.read_messages):
+                    self.unprocessed_points.put(item)
+                    recieved_messages += 1
+                self.read_messages[:] = []
             # logging.debug(
-            #     "Read %d messages in %f uS",
+            #     "Recieved %d messages in %d nS",
             #     recieved_messages,
-            #     (time.perf_counter_ns() - start_time) / 1000,
+            #     (time.perf_counter_ns() - start_time),
             # )
 
+    def data_callback(self):
+        # if not self.data_callback_lock:
+        # self.data_callback_lock = True
+        while not self.unprocessed_points.empty():
+            item = self.unprocessed_points.get_nowait()
+            self.item_count += 1
+            self.statuses.update(item["statuses"])
+            # self.plotter.add_message(item)
+        self.data_callback_lock = False
+        # else:
+        # print("blocked")
+
     def ui_callback(self):
+        # self.plotter.refresh_plot()
+        if self.unprocessed_points.qsize() != 0:
+            logging.info(
+                "Unprocessed queue size: " + str(self.unprocessed_points.qsize())
+            )
         self.update_statuses_analyses()
         self.update_plot_info()
 
     def update_statuses_analyses(self):
+        # Append new text without changing the scroll position
         current_scrollbar_position = self.analysis_text_edit.verticalScrollBar().value()
         max_scrollbar_position = self.analysis_text_edit.verticalScrollBar().maximum()
         # self.analysis_text_edit.append("New update line")  # Append new text here
@@ -411,30 +382,30 @@ class SmartSerialPloter(QMainWindow):
 
             self.q3_label.setText(
                 "total samples: "
-                + self._safe_num_as_str(self.serial.get_n_total_messages_read(), 6)
+                + self._safe_num_as_str(self.item_count, 7)
                 + " @ "
-                + self._safe_num_as_str(self.serial.get_hz_rx_messages(), 4)
+                + self._safe_num_as_str(b, 5)
                 + " hz   n displayed: "
-                + self._safe_num_as_str(self.plotter.get_total_points(), 6)  # TODO:
+                + self._safe_num_as_str(c, 7)
             )
             # self.plotter.refresh_plot()
 
     # ---------------------- Serial Handling ----------------------
     def serial_send(self):
-        self.serial.tx_messages.put(
-            TXMessage(
+        self.send_messages.append(
+            SendMessage(
                 message=self.q5_text_input.text(),
                 line_ending=str(self.serial_line_ending.currentText()),
             )
         )
 
     def get_serial_ports(self):
-        self.cur_ports = self.serial.get_ports()
+        self.cur_ports = self.serial_reader.get_ports()
         logging.debug("Current serial ports: " + str(self.cur_ports))
         cur_index = self.serial_ports.currentIndex()
         self.serial_ports.clear()
         for port in self.cur_ports:
-            self.serial_ports.addItem(str(port))
+            self.serial_ports.addItem(port[0])
 
         try:
             self.serial_ports.setCurrentIndex(cur_index)
@@ -442,35 +413,39 @@ class SmartSerialPloter(QMainWindow):
             logging.debug("Serial port no longer available")
 
     def begin_serial(self):
-        enable_logging = self.log_to_file_checkbox.isChecked()
-        ports = self.serial.get_ports()
-        chosen_port = ports[self.serial_ports.currentIndex()]
-
+        logging.info("Starting serial thread")
+        manager = multiprocessing.Manager()
         current_time = datetime.now()
-        self.serial.config["log_name"] = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-        self.serial.config["on"] = True
-        self.serial.config["log_enabled"] = enable_logging
-        self.serial.config["port"] = chosen_port
-        self.serial.config["baud"] = int(self.baud.text())
-        self.serial.config["latch_timeout"] = 50
 
-        table = Table()
-        table.add_column("Column 1")
-        table.add_column("Column 2")
-        table.add_row("Row 1 Data 1", "Row 1 Data 2")
-        table.add_row("Row 2 Data 1", "Row 2 Data 2")
-        # Start the process
+        self.read_messages = manager.list()
+        self.send_messages = manager.list()
+        self.misc_data = manager.dict()
+        self.misc_data["log_name"] = (
+            self.friendly_name.text()
+            if self.friendly_name.text() != ""
+            else current_time.strftime("%Y-%m-%d_%H-%M-%S")
+        )
+        if self.friendly_name.text() == "":
+            self.friendly_name.setText(current_time.strftime("%Y-%m-%d_%H-%M-%S"))
 
-        self.serial.start()
+        self.misc_data["on"] = True
 
-        # message: RXMessage
-        # message = self.serial.rx_messages.get_nowait()
-        # self.plotter.update_curve_keys(message.as_curve_keys())
-        # print("reinitializing plotter class")
-        # self.plotter.ui_init()
+        self.misc_data["log_enabled"] = bool(self.log_to_file_checkbox.isChecked())
+
+        self.serial_process = multiprocessing.Process(
+            target=self.serial_reader.handler,
+            args=(
+                self.read_messages,
+                self.send_messages,
+                self.misc_data,
+                self.cur_ports[self.serial_ports.currentIndex()],
+                int(self.baud.text()),
+            ),
+        )
+        self.serial_process.start()
 
     def end_serial(self):
-        self.serial.end()
+        self.misc_data["on"] = False
         logging.debug("Serial thread ended")
 
     # ---------------------- Global UI Event Handling ----------------------
@@ -491,7 +466,7 @@ class SmartSerialPloter(QMainWindow):
         if self.serial_process != None:
             self.serial_process.terminate()
         super().closeEvent(event)
-        # self.plotter.data_generator.terminate()
+        self.plotter.data_generator.terminate()
 
     # ---------------------- User Settings and Caching ----------------------
     def _get_user_settings(self) -> dict:
@@ -548,28 +523,24 @@ class SmartSerialPloter(QMainWindow):
         :return: String representation of the number with specified constraints.
         """
 
+        # Check if the number is negative
+
         is_negative = number < 0
         number = abs(number)
 
-        # Determine how many digits are needed for the integer part
-        int_digits = len(str(int(number)))
-
-        # Calculate remaining space for decimal part
-        decimal_space = max(0, characters - int_digits - 1)  # -1 for the decimal point
-
-        if int_digits + 1 <= characters:
-            # Format with fixed-point notation, trimming or padding the decimal part
-            formatted_number = f"{number:.{decimal_space}f}"
+        # Format the number to scientific notation if it's too long
+        if len(str(number)) > characters:
+            format_str = (
+                f"{{:.{characters - 5}e}}"  # Account for e+XX or e-XX and the dot
+            )
+            formatted_number = format_str.format(number)
         else:
-            # Use scientific notation
-            sci_decimal_space = max(0, characters - 5)  # -5 for "e+XX."
-            formatted_number = f"{number:.{sci_decimal_space}e}"
+            formatted_number = f"{number:,.{characters}f}".replace(",", " ")
 
-        # Ensure the string length matches 'characters'
-        if len(formatted_number) > characters:
-            formatted_number = formatted_number[:characters]
+        # Truncate or pad the string to the exact length
+        formatted_number = formatted_number[:characters].rjust(characters, "0")
 
-        # Restore the negative sign if necessary
+        # Add the negative sign back if needed
         if is_negative:
             formatted_number = "-" + formatted_number[1:]
 

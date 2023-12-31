@@ -33,5 +33,5 @@ if __name__ == "__main__":
         format="%(asctime)s - %(levelname)s - %(message)s", level=logging.DEBUG
     )
     app = QApplication(sys.argv)
-    window = SmartSerialPloter()
+    window = SmartSerialPloter(debug=True)
     sys.exit(app.exec_())

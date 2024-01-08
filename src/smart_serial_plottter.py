@@ -413,7 +413,7 @@ class SmartSerialPloter(QMainWindow):
                 "total samples: "
                 + self._safe_num_as_str(self.serial.get_n_total_messages_read(), 6)
                 + " @ "
-                + self._safe_num_as_str(self.serial.get_hz_rx_messages(), 4)
+                + self._safe_num_as_str(self.serial.get_hz_rx_messages(), 6)
                 + " hz   n displayed: "
                 + self._safe_num_as_str(self.plotter.get_total_points(), 6)  # TODO:
             )
